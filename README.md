@@ -17,6 +17,18 @@ $  goetotp --unlockpassword MyPassword9999
 123456
 ```
 
+You can use password via environment variable or std input.
+
+```sh
+$ goetotp
+Enter unlock password: 
+123456
+
+$ export ETOTP_PASSWORD=xxxxxxxxxxxxxxxx
+$ goetotp
+123456
+```
+
 ### Installation
 
 From source code:

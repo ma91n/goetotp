@@ -4,9 +4,12 @@ import (
 	"crypto/aes"
 	"crypto/sha1"
 	"encoding/base32"
+	"errors"
 	"fmt"
+	"golang.org/x/crypto/ssh/terminal"
 	"log"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/magiconair/properties"
@@ -58,14 +61,24 @@ func (c Config) ReadSecret(pass []byte) ([]byte, error) {
 		block.Decrypt(plaintext[i:j], padCipherText[i:j])
 	}
 
-	return PKCS5Trimming(plaintext), nil
+	trimming, err := PKCS5Trimming(plaintext)
+	if err != nil {
+		return nil, errors.New("bad password")
+	}
+
+	return trimming, nil
 }
 
 // PKCS5Trimming is trimming PKCS5Padding
 // ref: https://gist.github.com/hothero/7d085573f5cb7cdb5801d7adcf66dcf3
-func PKCS5Trimming(encrypt []byte) []byte {
+func PKCS5Trimming(encrypt []byte) ([]byte, error) {
 	padding := encrypt[len(encrypt)-1]
-	return encrypt[:len(encrypt)-int(padding)]
+
+	if len(encrypt)-int(padding) < 0 {
+		return nil, errors.New("invalid pkcs5 padding layout")
+	}
+
+	return encrypt[:len(encrypt)-int(padding)], nil
 }
 
 func main() {
@@ -75,15 +88,12 @@ func main() {
 		Usage: "run with .et-top.properties in the same directory",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:     "unlockpassword",
-				Value:    "",
-				Aliases:  []string{"pass"},
-				Usage:    "Unlock Password for et-OTP",
-				Required: true,
+				Name:    "unlockpassword",
+				Usage:   "Unlock Password for et-OTP. You can also use ${ETOTP_PASSWORD} as unlock password.",
+				Aliases: []string{"pass"},
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
-
 			p := properties.MustLoadFile(".et-otp.properties", properties.UTF8).
 				FilterPrefix("key.1").
 				FilterStripPrefix("key.1.")
@@ -93,7 +103,19 @@ func main() {
 				log.Fatal(err)
 			}
 
-			secret, err := cfg.ReadSecret([]byte(cCtx.String("unlockpassword")))
+			unlockPassword := cCtx.String("unlockpassword")
+			if unlockPassword == "" {
+				// Overwrite environment variable
+				unlockPassword = os.Getenv("ETOTP_PASSWORD")
+			}
+			if unlockPassword == "" {
+				fmt.Print("Enter unlock password: ")
+				stdInput, _ := terminal.ReadPassword(int(syscall.Stdin))
+				unlockPassword = string(stdInput)
+				fmt.Println()
+			}
+
+			secret, err := cfg.ReadSecret([]byte(unlockPassword))
 			if err != nil {
 				log.Fatal("read secret: ", err)
 			}
